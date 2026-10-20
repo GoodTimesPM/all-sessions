@@ -11,7 +11,8 @@ const sessions = atom({ plugin: 'all-sessions', key: 'sessions' } as const, [])
 const sections = atom({ plugin: 'all-sessions', key: 'sections' } as const, [])
 const error = atom({ plugin: 'all-sessions', key: 'error' } as const, null)
 const showArchived = atom({ plugin: 'all-sessions', key: 'showArchived' } as const, true)
-const collapsed = atom({ plugin: 'all-sessions', key: 'collapsed' } as const, [])
+// sections start collapsed; this holds the ones opened
+const expanded = atom({ plugin: 'all-sessions', key: 'expanded' } as const, [])
 const menuFor = atom({ plugin: 'all-sessions', key: 'menuFor' } as const, null)
 const renaming = atom({ plugin: 'all-sessions', key: 'renaming' } as const, null)
 const moving = atom({ plugin: 'all-sessions', key: 'moving' } as const, null)
@@ -79,7 +80,9 @@ export const bySection = (list: Section[], rows: SessionRow[]) => {
 const textOf = (res: { content: { type: string; text?: string }[] }) =>
   res.content.map(b => (b.type === 'text' ? b.text ?? '' : '')).join('')
 
-async function load($: EngineInterface) {
+// true when the session list loaded
+async function load($: EngineInterface): Promise<boolean> {
+  let ok = false
   try {
     const res = await $.mcp.call(SESSIONS, 'list_sessions', { include_archived: true, limit: 200 })
     if (res.isError) throw new Error(textOf(res) || 'list_sessions failed')
@@ -90,11 +93,12 @@ async function load($: EngineInterface) {
       const self = await $.mcp.call(SESSIONS, 'get_session', { session_id: 'self' })
       if (!self.isError) {
         const row = JSON.parse(textOf(self)) as RawSession
-        if (!raw.some(r => r.sessionId === row.sessionId)) raw.unshift(row)
+        if (row.sessionId && !raw.some(r => r.sessionId === row.sessionId)) raw.unshift(row)
       }
     } catch {}
     await update($, sessions, () => toRows(raw))
     await update($, error, () => null)
+    ok = true
   } catch (err) {
     await update($, error, () => String(err instanceof Error ? err.message : err))
   }
@@ -103,6 +107,16 @@ async function load($: EngineInterface) {
     const res = await $.mcp.call(SIDEBAR, 'list_sections', {})
     if (!res.isError) await update($, sections, () => toSections(JSON.parse(textOf(res)) as RawSection[]))
   } catch {}
+  return ok
+}
+
+// A new session draws the pane before the app's session tools connect, so
+// the first load can fail; it tries again for about ten seconds
+async function loadWhenReady($: EngineInterface) {
+  for (let tries = 0; tries < 10; tries++) {
+    if (await load($)) return
+    await $.clock.sleep(1000)
+  }
 }
 
 // Runs one app tool for a session, toasts the outcome, reloads the list
@@ -142,7 +156,7 @@ async function togglePane($: EngineInterface) {
 async function openPane($: EngineInterface) {
   // A width close to the real sidebar's; a width the person dragged wins
   await $.ui.open({ id: PANE, title: 'All sessions', columns: 44 })
-  await load($)
+  await loadWhenReady($)
 }
 
 export const register: Register = on => {
@@ -183,7 +197,7 @@ export const register: Register = on => {
     const order = await read($, sections)
     const failed = await read($, error)
     const withArchived = await read($, showArchived)
-    const closed = await read($, collapsed)
+    const opened = await read($, expanded)
     const openMenu = await read($, menuFor)
     const editing = await read($, renaming)
     const movingFor = await read($, moving)
@@ -196,7 +210,7 @@ export const register: Register = on => {
       if (s.link) void openLink($, s.link)
     }
     const toggle = (id: string) =>
-      void update($, collapsed, ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))
+      void update($, expanded, ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))
 
     const rule = (k: string) => (
       <Text key={k} color="#2a2a2a">
@@ -262,7 +276,7 @@ export const register: Register = on => {
 
     const groups = bySection(order, shown)
     // the last few rows drawn open their menu upward, so the pane edge cannot clip it
-    const drawn = groups.flatMap(g => (closed.includes(g.section.id) ? [] : g.rows.map(r => r.id)))
+    const drawn = groups.flatMap(g => (!opened.includes(g.section.id) ? [] : g.rows.map(r => r.id)))
     const upward = (id: string) => drawn.indexOf(id) >= Math.max(0, drawn.length - 4)
 
     return (
@@ -281,7 +295,7 @@ export const register: Register = on => {
         )}
         {!failed && shown.length === 0 && <Text dimColor>No sessions.</Text>}
         {groups.map(({ section, rows }) => {
-          const isClosed = closed.includes(section.id)
+          const isClosed = !opened.includes(section.id)
           return (
             <Box key={`sec-${section.id}`} flexDirection="column" marginTop={1}>
               <Box key={`bar-${section.id}`} backgroundColor="#1c1c1c" borderStyle="round" borderColor="#2a2a2a" paddingX={1}>
