@@ -1,0 +1,10 @@
+{
+  "name": "all-sessions",
+  "version": "0.2.0",
+  "description": "A Code tab pane that lists active and archived sessions together, grouped by your sidebar sections, with the sidebar's session menu",
+  "author": { "name": "GoodTimesPM" },
+  "homepage": "https://github.com/GoodTimesPM/all-sessions",
+  "repository": "https://github.com/GoodTimesPM/all-sessions",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

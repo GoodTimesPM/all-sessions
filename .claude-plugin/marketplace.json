@@ -1,0 +1,6 @@
+{
+  "name": "all-sessions",
+  "description": "The All sessions pane for the Claude Code desktop app",
+  "owner": { "name": "GoodTimesPM" },
+  "plugins": [{ "name": "all-sessions", "source": "./" }]
+}
