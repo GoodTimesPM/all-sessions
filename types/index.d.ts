@@ -21,7 +21,8 @@ declare module 'claude-code' {
       // null when the last load worked
       error: string | null
       showArchived: boolean
-      collapsed: string[]
+      // the sections opened; every section starts collapsed
+      expanded: string[]
       // the session whose actions row is open, and the one being renamed
       menuFor: string | null
       renaming: string | null
