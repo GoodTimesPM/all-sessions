@@ -34,10 +34,17 @@ test('lists active and archived together, dims archived, restores one', async ($
       const rows = [ACTIVE, { ...ARCHIVED, isArchived: archived }]
       return { value: { content: [{ type: 'text', text: JSON.stringify(rows) }], isError: false } }
     }
+    if (e.tool === 'get_session') {
+      // the session the pane runs in, which list_sessions leaves out
+      const self = { ...ACTIVE, sessionId: 'local_self', title: 'This session', group: { id: 'g2', name: 'Plugins' } }
+      return { value: { content: [{ type: 'text', text: JSON.stringify(self) }], isError: false } }
+    }
     if (e.tool === 'list_sections') {
       const rows = [
         { id: 'pinned', kind: 'pinned', name: '' },
         { id: 'g1', kind: 'manual', name: 'Website' },
+        { id: 'g2', kind: 'manual', name: 'Plugins' },
+        { id: 'g3', kind: 'manual', name: 'Empty one' },
         { id: 'sessions', kind: 'sessions', name: '' },
       ]
       return { value: { content: [{ type: 'text', text: JSON.stringify(rows) }], isError: false } }
@@ -71,6 +78,9 @@ test('lists active and archived together, dims archived, restores one', async ($
     expect((await ui.find({ key: 'head-g1' }))?.text).toMatch(/Website/)
     expect((await ui.find({ key: 'head-sessions' }))?.text).toMatch(/Projects/)
     expect(await ui.find({ key: 'head-pinned' })).toBeUndefined()
+    // this session shows under its own section, and an empty section still shows
+    expect((await ui.find({ key: 'open-local_self' }))?.text).toMatch(/This session/)
+    expect((await ui.find({ key: 'head-g3' }))?.text).toMatch(/Empty one/)
     await ui.press({ key: 'head-g1' })
     expect(await ui.find({ key: 'open-local_a' })).toBeUndefined()
     await ui.press({ key: 'head-g1' })
