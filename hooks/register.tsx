@@ -16,6 +16,7 @@ const expanded = atom({ plugin: 'all-sessions', key: 'expanded' } as const, [])
 const menuFor = atom({ plugin: 'all-sessions', key: 'menuFor' } as const, null)
 const renaming = atom({ plugin: 'all-sessions', key: 'renaming' } as const, null)
 const moving = atom({ plugin: 'all-sessions', key: 'moving' } as const, null)
+const waiting = atom({ plugin: 'all-sessions', key: 'waiting' } as const, false)
 
 type RawSession = {
   sessionId: string
@@ -80,8 +81,8 @@ export const bySection = (list: Section[], rows: SessionRow[]) => {
 const textOf = (res: { content: { type: string; text?: string }[] }) =>
   res.content.map(b => (b.type === 'text' ? b.text ?? '' : '')).join('')
 
-// true when the session list loaded
-async function load($: EngineInterface): Promise<boolean> {
+// true when the session list loaded; a quiet load keeps a failure off the pane
+async function load($: EngineInterface, quiet = false): Promise<boolean> {
   let ok = false
   try {
     const res = await $.mcp.call(SESSIONS, 'list_sessions', { include_archived: true, limit: 200 })
@@ -100,7 +101,7 @@ async function load($: EngineInterface): Promise<boolean> {
     await update($, error, () => null)
     ok = true
   } catch (err) {
-    await update($, error, () => String(err instanceof Error ? err.message : err))
+    if (!quiet) await update($, error, () => String(err instanceof Error ? err.message : err))
   }
   // Without the sidebar's sections the pane falls back to one list
   try {
@@ -110,12 +111,19 @@ async function load($: EngineInterface): Promise<boolean> {
   return ok
 }
 
-// A new session draws the pane before the app's session tools connect, so
-// the first load can fail; it tries again for about ten seconds
+// A new session draws the pane before the app can check its tool calls
+// ("Session state unavailable"), so the first loads fail. It tries quietly
+// every two seconds for two minutes, then shows the error; a prompt sent
+// meanwhile tries again too
 async function loadWhenReady($: EngineInterface) {
-  for (let tries = 0; tries < 10; tries++) {
-    if (await load($)) return
-    await $.clock.sleep(1000)
+  await update($, waiting, () => true)
+  try {
+    for (let tries = 0; tries < 60; tries++) {
+      if (await load($, tries < 59)) return
+      await $.clock.sleep(2000)
+    }
+  } finally {
+    await update($, waiting, () => false)
   }
 }
 
@@ -170,6 +178,12 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The first prompt of a new session means its state is there now
+  on('prompt.submit', async ($, e, next) => {
+    if ((await read($, waiting)) || (await read($, error))) void load($)
+    return next(e)
+  })
+
   on('command.run', { command: 'all-sessions' }, async $ => {
     await openPane($)
 
@@ -180,10 +194,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const { Box, Button } = $.ui.resolve(e)
+    // other plugins' band buttons (Loadout's) draw beside this one
+    const below = await next(e).catch(() => null)
 
     return (
-      <Box>
+      <Box flexDirection="row" gap={1}>
         <Button key="open-all-sessions" label="All sessions" onPress={() => void togglePane($)} />
+        {below}
       </Box>
     )
   })
@@ -196,6 +213,7 @@ export const register: Register = on => {
     const list = await read($, sessions)
     const order = await read($, sections)
     const failed = await read($, error)
+    const isWaiting = await read($, waiting)
     const withArchived = await read($, showArchived)
     const opened = await read($, expanded)
     const openMenu = await read($, menuFor)
@@ -290,10 +308,11 @@ export const register: Register = on => {
           />
         </Box>
         {failed && <Text color="red">Could not load sessions: {failed}</Text>}
-        {!failed && archivedCount === 0 && (
+        {!failed && isWaiting && list.length === 0 && <Text dimColor>Waiting for the app to load this session…</Text>}
+        {!failed && !isWaiting && archivedCount === 0 && (
           <Text dimColor>The app's session list has no archived sessions in it yet.</Text>
         )}
-        {!failed && shown.length === 0 && <Text dimColor>No sessions.</Text>}
+        {!failed && !isWaiting && shown.length === 0 && <Text dimColor>No sessions.</Text>}
         {groups.map(({ section, rows }) => {
           const isClosed = !opened.includes(section.id)
           return (

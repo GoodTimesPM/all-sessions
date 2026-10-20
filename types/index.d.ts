@@ -28,6 +28,8 @@ declare module 'claude-code' {
       renaming: string | null
       // the session whose menu shows the Move to list
       moving: string | null
+      // true while a new session's first loads are still being retried
+      waiting: boolean
     }
   }
 }
