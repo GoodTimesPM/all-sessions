@@ -72,7 +72,8 @@ export const bySection = (list: Section[], rows: SessionRow[]) => {
         return r.sectionId === section.id
       }),
     }))
-    .filter(g => g.rows.length > 0)
+    // a section of your own shows while empty, as the sidebar's does
+    .filter(g => g.rows.length > 0 || (g.section.id !== 'pinned' && g.section.id !== 'sessions'))
 }
 
 const textOf = (res: { content: { type: string; text?: string }[] }) =>
@@ -82,7 +83,17 @@ async function load($: EngineInterface) {
   try {
     const res = await $.mcp.call(SESSIONS, 'list_sessions', { include_archived: true, limit: 200 })
     if (res.isError) throw new Error(textOf(res) || 'list_sessions failed')
-    await update($, sessions, () => toRows(JSON.parse(textOf(res)) as RawSession[]))
+    const raw = JSON.parse(textOf(res)) as RawSession[]
+    // list_sessions leaves out the session that asks, which is the one this
+    // pane is drawn in; get_session "self" puts it back
+    try {
+      const self = await $.mcp.call(SESSIONS, 'get_session', { session_id: 'self' })
+      if (!self.isError) {
+        const row = JSON.parse(textOf(self)) as RawSession
+        if (!raw.some(r => r.sessionId === row.sessionId)) raw.unshift(row)
+      }
+    } catch {}
+    await update($, sessions, () => toRows(raw))
     await update($, error, () => null)
   } catch (err) {
     await update($, error, () => String(err instanceof Error ? err.message : err))
