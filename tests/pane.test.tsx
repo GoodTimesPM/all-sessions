@@ -66,6 +66,10 @@ test('lists active and archived together, dims archived, restores one', async ($
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'Refresh' })
 
+    // every section starts collapsed
+    expect(await ui.find({ key: 'open-local_a' })).toBeUndefined()
+    for (const id of ['g1', 'g2', 'sessions']) await ui.press({ key: `head-${id}` })
+
     const active = await ui.find({ key: 'open-local_a' })
     const old = await ui.find({ key: 'open-local_b' })
     expect(active?.text).toMatch(/Website redesign/)
@@ -111,6 +115,8 @@ test('lists active and archived together, dims archived, restores one', async ($
     await ui.press({ key: 'restore-local_b' })
     expect(restored.at(-1)).toBe('local_b')
     expect((await ui.find({ key: 'open-local_b' }))?.props.dimColor).toBe(false)
+    // the opened sections are session state: fold them for the next surface
+    for (const id of ['g1', 'g2', 'sessions']) await ui.press({ key: `head-${id}` })
     await ui.unmount()
   }
 })
