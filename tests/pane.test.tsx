@@ -51,10 +51,12 @@ test('lists active and archived together, dims archived, restores one', async ($
     }
     if (['set_pinned', 'set_unread', 'set_session_title', 'move_sessions', 'archive_session'].includes(e.tool)) {
       calls.push(`${e.tool} ${JSON.stringify(e.args)}`)
+      if (e.tool === 'archive_session' && e.args.session_id === 'local_b') archived = true
       return { value: { content: [{ type: 'text', text: 'ok' }], isError: false } }
     }
     if (e.tool === 'unarchive_session') {
       restored.push(String(e.args.session_id))
+      calls.push(`${e.tool} ${JSON.stringify(e.args)}`)
       archived = false
       return { value: { content: [{ type: 'text', text: 'ok' }], isError: false } }
     }
@@ -110,6 +112,14 @@ test('lists active and archived together, dims archived, restores one', async ($
     await ui.press({ key: 'more-local_a' })
     await ui.press({ key: 'archive-local_a' })
     expect(calls.at(-1)).toMatch(/archive_session/)
+
+    // an archived session has no pin, and moving it restores, moves, re-archives
+    await ui.press({ key: 'more-local_b' })
+    expect(await ui.find({ key: 'pin-local_b' })).toBeUndefined()
+    await ui.press({ key: 'moveto-local_b' })
+    await ui.press({ key: 'move-local_b-g2' })
+    expect(calls.slice(-3).map(c => c.split(' ')[0])).toEqual(['unarchive_session', 'move_sessions', 'archive_session'])
+    expect(calls.at(-2)).toMatch(/"section_id":"g2"/)
 
     await ui.press({ key: 'more-local_b' })
     await ui.press({ key: 'restore-local_b' })
