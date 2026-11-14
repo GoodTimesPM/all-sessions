@@ -141,10 +141,35 @@ async function act($: EngineInterface, server: string, tool: string, args: Recor
   await load($)
 }
 
+// The sidebar keeps no section for an archived session, so moving one
+// restores it, moves it, and archives it again
+async function moveArchived($: EngineInterface, id: string, sectionId: string, name: string) {
+  const step = async (server: string, tool: string, args: Record<string, unknown>) => {
+    const res = await $.mcp.call(server, tool, args)
+    if (res.isError) throw new Error(textOf(res) || `${tool} failed`)
+  }
+  try {
+    await step(SESSIONS, 'unarchive_session', { session_id: id })
+    try {
+      await step(SIDEBAR, 'move_sessions', { session_ids: [id], section_id: sectionId })
+      $.ui.toast(`Moved to ${name}`)
+    } finally {
+      await step(SESSIONS, 'archive_session', { session_id: id, reason: 'Re-archived after a move in the All sessions pane' })
+    }
+  } catch (err) {
+    $.ui.toast(String(err instanceof Error ? err.message : err))
+  }
+  await update($, menuFor, () => null)
+  await update($, moving, () => null)
+  await load($)
+}
+
 // claude:// links open through the OS: explorer.exe on Windows (which exits 1
 // even when it worked, so only a launch failure moves on), open on macOS,
 // xdg-open on Linux
 async function openLink($: EngineInterface, link: string) {
+  // explorer.exe also opens files and programs, so nothing but a session link goes to it
+  if (!/^claude:\/\/[\w./?=&%-]+$/i.test(link)) return $.ui.toast('That is not a session link')
   for (const opener of ['explorer.exe', 'open', 'xdg-open']) {
     try {
       await $.process.run([opener, link])
@@ -253,7 +278,9 @@ export const register: Register = on => {
             rule(`rule-m-${s.id}`),
             ...targets.map(t =>
               item(`move-${s.id}-${t.id}`, t.name, t.id === s.sectionId ? '✓' : '', () =>
-                void act($, SIDEBAR, 'move_sessions', { session_ids: [s.id], section_id: t.id }, `Moved to ${t.name}`),
+                void (s.isArchived
+                  ? moveArchived($, s.id, t.id, t.name)
+                  : act($, SIDEBAR, 'move_sessions', { session_ids: [s.id], section_id: t.id }, `Moved to ${t.name}`)),
               ),
             ),
           ]
@@ -263,12 +290,17 @@ export const register: Register = on => {
                 onSubmit={value => value.trim() && void act($, SESSIONS, 'set_session_title', { session_id: s.id, title: value.trim() }, 'Renamed')} />,
             ]
           : [
-              item(`pin-${s.id}`, s.isPinned ? 'Unpin' : 'Pin', '', () =>
-                void act($, SIDEBAR, 'set_pinned', { session_id: s.id, pinned: !s.isPinned }, s.isPinned ? 'Unpinned' : 'Pinned'),
-              ),
-              item(`unread-${s.id}`, 'Mark as unread', '', () =>
-                void act($, SIDEBAR, 'set_unread', { session_id: s.id, unread: true }, 'Marked as unread'),
-              ),
+              // the sidebar shows no pin or unread dot on an archived session
+              ...(s.isArchived
+                ? []
+                : [
+                    item(`pin-${s.id}`, s.isPinned ? 'Unpin' : 'Pin', '', () =>
+                      void act($, SIDEBAR, 'set_pinned', { session_id: s.id, pinned: !s.isPinned }, s.isPinned ? 'Unpinned' : 'Pinned'),
+                    ),
+                    item(`unread-${s.id}`, 'Mark as unread', '', () =>
+                      void act($, SIDEBAR, 'set_unread', { session_id: s.id, unread: true }, 'Marked as unread'),
+                    ),
+                  ]),
               ...(Input ? [item(`rename-${s.id}`, 'Rename', '', () => void update($, renaming, () => s.id))] : []),
               rule(`rule-1-${s.id}`),
               item(`moveto-${s.id}`, 'Move to', '›', () => void update($, moving, () => s.id)),
