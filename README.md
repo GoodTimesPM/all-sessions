@@ -47,6 +47,10 @@ Then `/reload-plugins`, or start a new session.
 - **Older archived sessions.** The pane asks the app for its session list,
   and the app returns only sessions archived recently. Ones archived long
   ago are still on the Sessions page, but they never show up here.
+- **Sessions the app hasn't started.** Plugins run inside a session's
+  process. After the app restarts, and on the New session page, the app
+  waits for your first prompt before starting that process, so the button
+  appears only once you send something.
 - **Fork, and Open in a split or a new window.** The app gives plugins no
   way to fork a session, and it opens splits only for sessions the plugin's
   own session started.
